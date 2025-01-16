@@ -1,0 +1,6 @@
+def process_pdf_to_file(pdf_path: str, output_file: str, top_n: int = 5):
+    """Processes a PDF and writes the top font sizes to a file."""
+    parsed_sections = parse_pdf_content(pdf_path)
+    grouped_sections = group_by_top_font_sizes(parsed_sections, top_n=top_n)
+    save_grouped_sections_to_file(grouped_sections, output_file)
+    print(f"Top {top_n} font sizes saved to {output_file}")
