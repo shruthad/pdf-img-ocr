@@ -1,0 +1,251 @@
+import pdfplumber
+import json
+from collections import defaultdict
+
+# Class to handle PDF Parsing
+class PDFParser:
+    def __init__(self, pdf_path, config_path):
+        self.pdf_path = pdf_path
+        self.config = self.load_config(config_path)
+        self.doc_name = pdf_path.split('/')[-1]
+        self.title = ""
+        self.result = []
+        self.current_section_pages = set()
+        self.current_subsection_pages = set()
+
+    def load_config(self, config_path):
+        with open(config_path, 'r') as f:
+            return json.load(f)
+
+    def parse(self):
+        current_section = None
+        current_subsection = None
+        content, tables = [], []
+
+        with pdfplumber.open(self.pdf_path) as pdf:
+            for page_number, page in enumerate(pdf.pages, start=1):
+                current_section, current_subsection, content, tables = self.process_page(
+                    page, current_section, current_subsection, content, tables, page_number
+                )
+
+        # Final append of the last section or subsection
+        if current_section or current_subsection or content or tables:
+            self.result.append({
+                "Document Name": self.doc_name,
+                "Title": self.title,
+                "Sections Heading": current_section or "",
+                "Subsections Heading": current_subsection or "",
+                "Raw Content": " ".join(content),
+                "Page Numbers": sorted(list(self.current_section_pages if not current_subsection else self.current_subsection_pages)),
+                "Tables": tables,
+                "Images": []
+            })
+
+        return self.result
+
+  
+
+    def group_lines_by_top(self, page):
+        lines = defaultdict(list)
+        for char in page.chars:
+            lines[round(char['top'])].append(char)
+
+        grouped_lines = {}
+        for top, chars in sorted(lines.items()):
+            # Sort characters by their x0 coordinate (horizontal position)
+            chars = sorted(chars, key=lambda x: x['x0'])
+            line_content = []
+
+            for i, char in enumerate(chars):
+                line_content.append(char['text'])
+
+                # Add space if the next character is not immediately adjacent
+                if i < len(chars) - 1:
+                    next_char = chars[i + 1]
+                    if next_char['x0'] > char['x1'] + 1:  # Adjust threshold as needed
+                        line_content.append(' ')
+
+            line_content = ''.join(line_content).strip()
+            if line_content:
+                grouped_lines[line_content] = chars
+
+        return grouped_lines
+
+    def match_heading(self, font_size, font_style):
+        if self.match_config(self.config["title"], font_style, font_size):
+            return "title"
+        elif self.match_config(self.config["section"], font_style, font_size):
+            return "section"
+        elif self.match_config(self.config["subsection"], font_style, font_size):
+            return "subsection"
+        return None
+
+    def match_config(self, config_entry, font_name, font_size):
+        return (
+            (config_entry["font_style"] == font_name or config_entry["font_style"].lower() == "nil") and
+            (config_entry["font_size"] == font_size or config_entry["font_size"] == 0)
+        )
+
+    def process_page(self, page, current_section, current_subsection, content, tables, page_number):
+        # Step 1: Detect Tables
+        page_tables = []
+        assigned_table_ids = set()  # Track already assigned tables to avoid duplicates
+        for table in page.find_tables():  # Detect tables explicitly
+            table_bbox = table.bbox  # Get table bounding box: (x0, top, x1, bottom)
+            table_data = table.extract()  # Extract table data
+            table_dict = {
+                "data": table_data,   # Table content
+                "top": table_bbox[1],  # Top boundary of the table
+                "bottom": table_bbox[3],  # Bottom boundary of the table
+                "bbox": table_bbox
+            }
+            page_tables.append(table_dict)
+
+        # Step 2: Detect Figures (Images and Rectangles)
+        page_figures = []  # Store all detected figures (images/rectangles)
+        
+        # Detect images
+        image_objects = page.images
+        for image in image_objects:
+            page_figures.append({
+                "bbox": (image["x0"], image["top"], image["x1"], image["bottom"]),
+                "top": image["top"],  # Explicitly include top and bottom
+                "bottom": image["bottom"],
+                "type": "image"
+            })
+        
+        # Detect rectangles
+        rect_objects = page.rects
+        for rect in rect_objects:
+            page_figures.append({
+                "bbox": (rect["x0"], rect["top"], rect["x1"], rect["bottom"]),
+                "top": rect["top"],  # Explicitly include top and bottom
+                "bottom": rect["bottom"],
+                "type": "rect"
+            })
+
+        # Step 3: Filter Out Tables That Are Actually Figures
+        valid_tables = []
+        for table in page_tables:
+            # Check if the table overlaps with any figure
+            overlaps_figure = any(
+                table["top"] < figure["bottom"] and table["bottom"] > figure["top"]
+                for figure in page_figures
+            )
+
+            # Check if the table content is too sparse or irregular
+            # is_irregular = (
+            #     len(table["data"]) <= 1  # Too few rows
+            #     or all(len(row) <= 1 for row in table["data"])  # Rows with only one or no columns
+            # )
+
+            # If it overlaps a figure or is irregular, skip it
+            if overlaps_figure: 
+            # or is_irregular:
+                continue
+
+            # Otherwise, it's a valid table
+            valid_tables.append(table)
+
+        # Step 4: Process Content, Headings, and Tables
+        lines = self.group_lines_by_top(page)
+        for line_content, chars in lines.items():
+            avg_top = sum(char["top"] for char in chars) / len(chars)  # Average top position for the line
+
+            # Check if the line overlaps with a table or figure
+            is_table_line = any(
+                avg_top >= table["top"] and avg_top <= table["bottom"]
+                for table in valid_tables
+            )
+            # is_figure_line = any(
+            #     avg_top >= figure["top"] and avg_top <= figure["bottom"]
+            #     for figure in page_figures
+            # )
+
+            # # Skip figure lines entirely
+            # if is_figure_line:
+            #     continue
+
+            if not is_table_line:
+                # Process content and headings
+                avg_font_size = round(sum(char["size"] for char in chars) / len(chars))
+                font_styles = {char["fontname"] for char in chars}
+                font_style = next(iter(font_styles), None)
+
+                heading_type = self.match_heading(avg_font_size, font_style)
+
+                if heading_type == "title":
+                    self.title += " " + line_content if self.title else line_content
+                elif heading_type == "section":
+                    if current_section or content or tables:
+                        self.result.append({
+                            "Document Name": self.doc_name,
+                            "Title": self.title,
+                            "Sections Heading": current_section or "",
+                            "Subsections Heading": current_subsection or "",
+                            "Raw Content": " ".join(content),
+                            "Page Numbers": sorted(list(self.current_section_pages if not current_subsection else self.current_subsection_pages)),
+                            "Tables": tables,
+                            "Images": []
+                        })
+                    current_section = line_content
+                    current_subsection = None
+                    content, tables = [], []
+                    self.current_section_pages = {page_number}
+                    self.current_subsection_pages = set()
+                elif heading_type == "subsection":
+                    if current_subsection or content or tables:
+                        self.result.append({
+                            "Document Name": self.doc_name,
+                            "Title": self.title,
+                            "Sections Heading": current_section,
+                            "Subsections Heading": current_subsection or "",
+                            "Raw Content": " ".join(content),
+                            "Page Numbers": sorted(list(self.current_subsection_pages)),
+                            "Tables": tables,
+                            "Images": []
+                        })
+                    current_subsection = line_content
+                    content, tables = [], []
+                    self.current_subsection_pages = {page_number}
+                else:
+                    content.append(line_content)
+
+            # Process the tables if the line overlaps with one
+            else:
+                for table in valid_tables:
+                    table_id = id(table)
+                    if table_id not in assigned_table_ids and avg_top >= table["top"] and avg_top <= table["bottom"]:
+                        if current_subsection:
+                            self.current_subsection_pages.add(page_number)
+                            tables.append(table)
+                        elif current_section:
+                            self.current_section_pages.add(page_number)
+                            tables.append(table)
+                        assigned_table_ids.add(table_id)
+
+        return current_section, current_subsection, content, tables
+
+
+
+
+
+
+
+
+
+
+# Paths to PDF and config
+pdf_path = "/content/2212.14052v3.pdf"
+config_path = "/content/config_1.json"
+
+# Initialize and run the parser
+parser = PDFParser(pdf_path, config_path)
+parsed_data = parser.parse()
+
+# Save the result to JSON
+output_path = "/content/output21.json"
+with open(output_path, 'w') as f:
+    json.dump(parsed_data, f, indent=4)
+
+print("Parsed data saved to output.json")
