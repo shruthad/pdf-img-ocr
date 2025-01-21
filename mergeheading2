@@ -1,0 +1,156 @@
+import pdfplumber
+import json
+from collections import defaultdict
+
+# Class to handle PDF Parsing
+class PDFParser:
+    def __init__(self, pdf_path, config_path):
+        self.pdf_path = pdf_path
+        self.config = self.load_config(config_path)
+        self.doc_name = pdf_path.split('/')[-1]
+        self.title = ""
+        self.result = []
+        self.current_section_pages = set()
+        self.current_subsection_pages = set()
+
+    def load_config(self, config_path):
+        with open(config_path, 'r') as f:
+            return json.load(f)
+
+    def parse(self):
+        current_section = None
+        current_subsection = None
+        content, tables = [], []
+
+        with pdfplumber.open(self.pdf_path) as pdf:
+            for page_number, page in enumerate(pdf.pages, start=1):
+                current_section, current_subsection, content, tables = self.process_page(
+                    page, current_section, current_subsection, content, tables, page_number
+                )
+
+        # Final append of the last section or subsection
+        if current_section or current_subsection or content or tables:
+            self.append_result(current_section, current_subsection, content, tables)
+
+        return self.result
+
+    def append_result(self, section, subsection, content, tables):
+        if section or subsection or content or tables:
+            self.result.append({
+                "Document Name": self.doc_name,
+                "Title": self.title,
+                "Sections Heading": section or "",
+                "Subsections Heading": subsection or "",
+                "Raw Content": " ".join(content),
+                "Page Numbers": sorted(list(self.current_section_pages if not subsection else self.current_subsection_pages)),
+                "Tables": tables,
+                "Images": []
+            })
+
+    def group_lines_by_top(self, page, line_spacing_threshold=5):
+        lines = defaultdict(list)
+        for char in page.chars:
+            lines[round(char['top'])].append(char)
+
+        grouped_lines = {}
+        sorted_tops = sorted(lines.keys())
+        previous_top = None
+        current_line_content = []
+        current_chars = []
+
+        for top in sorted_tops:
+            chars = sorted(lines[top], key=lambda x: x['x0'])
+            line_text = "".join(char['text'] for char in chars).strip()
+
+            if previous_top is not None and abs(top - previous_top) <= line_spacing_threshold:
+                # Merge the line with the previous one
+                current_line_content.append(line_text)
+                current_chars.extend(chars)
+            else:
+                if current_line_content:
+                    merged_line = " ".join(current_line_content)
+                    grouped_lines[merged_line] = current_chars
+                current_line_content = [line_text]
+                current_chars = chars
+
+            previous_top = top
+
+        # Add the last line
+        if current_line_content:
+            merged_line = " ".join(current_line_content)
+            grouped_lines[merged_line] = current_chars
+
+        return grouped_lines
+
+    def match_heading(self, font_size, font_style):
+        if self.match_config(self.config["title"], font_style, font_size):
+            return "title"
+        elif self.match_config(self.config["section"], font_style, font_size):
+            return "section"
+        elif self.match_config(self.config["subsection"], font_style, font_size):
+            return "subsection"
+        return None
+
+    def match_config(self, config_entry, font_name, font_size):
+        return (
+            (config_entry["font_style"] == font_name or config_entry["font_style"].lower() == "nil") and
+            (config_entry["font_size"] == font_size or config_entry["font_size"] == 0)
+        )
+
+    def process_page(self, page, current_section, current_subsection, content, tables, page_number):
+        # Step 1: Group lines and extract tables/figures
+        lines = self.group_lines_by_top(page)
+        page_tables = [table.extract() for table in page.find_tables()]
+
+        # Step 2: Process lines for content and headings
+        for line_content, chars in lines.items():
+            avg_font_size = round(sum(char["size"] for char in chars) / len(chars))
+            font_styles = {char["fontname"] for char in chars}
+            font_style = next(iter(font_styles), None)
+
+            heading_type = self.match_heading(avg_font_size, font_style)
+
+            if heading_type in {"section", "subsection"}:
+                # Concatenate with the next line if it's a continuation of the heading
+                line_index = list(lines.keys()).index(line_content)
+                if line_index + 1 < len(lines):
+                    next_line_content, next_line_chars = list(lines.items())[line_index + 1]
+                    next_font_size = round(sum(char["size"] for char in next_line_chars) / len(next_line_chars))
+                    next_font_style = next(iter({char["fontname"] for char in next_line_chars}), None)
+
+                    if self.match_heading(next_font_size, next_font_style) == heading_type:
+                        line_content += " " + next_line_content
+
+            if heading_type == "title":
+                self.title += " " + line_content if self.title else line_content
+            elif heading_type == "section":
+                self.append_result(current_section, current_subsection, content, tables)
+                current_section = line_content
+                current_subsection = None
+                content, tables = [], []
+                self.current_section_pages = {page_number}
+                self.current_subsection_pages = set()
+            elif heading_type == "subsection":
+                self.append_result(current_section, current_subsection, content, tables)
+                current_subsection = line_content
+                content, tables = [], []
+                self.current_subsection_pages = {page_number}
+            else:
+                content.append(line_content)
+
+        return current_section, current_subsection, content, tables
+
+# Paths to PDF and config
+pdf_path = "/content/2212.14052v3.pdf"
+config_path = "/content/config.json"
+
+# Initialize and run the parser
+parser = PDFParser(pdf_path, config_path)
+parsed_data = parser.parse()
+
+# Save the result to JSON
+output_path = "/content/output_fixed.json"
+with open(output_path, 'w') as f:
+    json.dump(parsed_data, f, indent=4)
+
+print("Parsed data saved to output_fixed.json")
