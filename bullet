@@ -1,0 +1,66 @@
+def analyze_pdf_layout(pdf_path: str):
+    """Analyzes the layout of a PDF to extract text, font size, and font style."""
+    layout_data = []
+    with pdfplumber.open(pdf_path) as pdf:
+        for page_num, page in enumerate(pdf.pages, start=1):
+            page_elements = []
+            for char in page.chars:
+                font_size = round(float(char.get("size", 0)))
+                font_name = char.get("fontname", "")
+                text = char.get("text", "").strip()
+
+                # Detect bullets like "□", "•", etc.
+                is_bullet = text in {"□", "•", "◦", "▪"}  # Add other symbols if needed
+
+                if text:
+                    page_elements.append({
+                        "text": text,
+                        "font_size": font_size,
+                        "font_style": font_name,
+                        "page_number": page_num,
+                        "is_bullet": is_bullet,  # Add bullet detection flag
+                    })
+            layout_data.append(page_elements)
+    return layout_data
+
+
+def group_bullets(layout_analysis):
+    """Groups bullets by their font style and size."""
+    bullet_data = defaultdict(list)
+
+    for page_data in layout_analysis:
+        for element in page_data:
+            if element["is_bullet"]:  # Check if the element is a bullet
+                key = (element["font_size"], element["font_style"])
+                bullet_data[key].append({
+                    "text": element["text"],
+                    "page_number": element["page_number"],
+                })
+
+    return bullet_data
+
+def save_bullets_to_file(bullet_data, output_file):
+    """Saves bullet information to a text file."""
+    with open(output_file, "w", encoding="utf-8") as f:
+        for (font_size, font_style), bullets in sorted(bullet_data.items(), reverse=True):
+            f.write(f"Font Size: {font_size}, Font Style: {font_style}\n")
+            f.write("=" * 50 + "\n")
+            for bullet in bullets:
+                f.write(f"  Page Number: {bullet['page_number']}, Bullet: {bullet['text']}\n")
+            f.write("\n")
+if __name__ == "__main__":
+    pdf_path = "/content/2212.14052v3.pdf"  # Replace with your PDF path
+
+    output_file_bullets = "/content/output_bullets.txt"
+
+    # Parse PDF and analyze layout
+    layout_analysis = analyze_pdf_layout(pdf_path)
+
+
+
+
+    # Detect and save bullets
+    bullet_data = group_bullets(layout_analysis)
+    save_bullets_to_file(bullet_data, output_file_bullets)
+
+    print(f"Bullets saved to {output_file_bullets}")
