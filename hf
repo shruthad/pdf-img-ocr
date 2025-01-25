@@ -1,0 +1,166 @@
+import pdfplumber
+from collections import defaultdict
+import re
+
+
+class SectionContainer:
+    """Container to store parsed content and metadata."""
+    def __init__(self, content: str, metadata: dict):
+        self.content = content
+        self.metadata = metadata
+
+    def __repr__(self):
+        return f"SectionContainer(metadata={self.metadata}, content_length={len(self.content)})"
+
+
+def is_page_number(content):
+    """
+    Check if the content matches common page number patterns.
+
+    Args:
+        content (str): Footer content to evaluate.
+
+    Returns:
+        bool: True if the content is likely a page number, False otherwise.
+    """
+    patterns = [
+        r"^\d+$",  # Matches simple numeric page numbers (e.g., "1", "23")
+        r"^Page \d+$",  # Matches "Page 1", "Page 23"
+        r"^Page \d+ of \d+$",  # Matches "Page 1 of 10"
+        r"^Pg\.? \d+$",  # Matches "Pg. 1", "Pg 2"
+        r"^\d+ of \d+$"  # Matches "1 of 10", "2 of 20"
+    ]
+    return any(re.match(pattern, content, re.IGNORECASE) for pattern in patterns)
+
+
+def jaccard_similarity(str1, str2):
+    """Calculate Jaccard similarity between two strings."""
+    set1 = set(str1.split())
+    set2 = set(str2.split())
+    return len(set1 & set2) / len(set1 | set2) if set1 | set2 else 0.0
+
+
+def detect_header_footer_similarity(pdf_path, header_height=50, footer_height=50):
+    """
+    Detect headers and footers using bounding box positions and text similarity across pages.
+
+    Args:
+        pdf_path (str): Path to the PDF file.
+        header_height (int): Height in points to define the header region.
+        footer_height (int): Height in points to define the footer region.
+
+    Returns:
+        dict: Contains consistent header/footer content, positions, confidence, and page details.
+    """
+    header_texts = []
+    footer_texts = []
+    header_positions = []
+    footer_positions = []
+    total_pages = 0
+    page_details = []
+    footer_page_numbers_count = 0  # Count of footers detected as page numbers
+
+    with pdfplumber.open(pdf_path) as pdf:
+        total_pages = len(pdf.pages)
+        for i, page in enumerate(pdf.pages):
+            words = page.extract_words()
+            page_height = page.height
+
+            # Extract header and footer content and bounding box positions
+            header_content = " ".join(word["text"] for word in words if word["top"] <= header_height).strip()
+            footer_content = " ".join(word["text"] for word in words if word["top"] >= (page_height - footer_height)).strip()
+
+            header_bottom = max((word["bottom"] for word in words if word["top"] <= header_height), default=0)
+            footer_top = min((word["top"] for word in words if word["top"] >= (page_height - footer_height)), default=page_height)
+
+            # Check if footer content is a page number
+            if is_page_number(footer_content):
+                footer_page_numbers_count += 1
+                footer_content = "PageNumbers"
+
+            # Collect texts and positions
+            if header_content:
+                header_texts.append(header_content)
+                header_positions.append(header_bottom)
+
+            if footer_content:
+                footer_texts.append(footer_content)
+                footer_positions.append(footer_top)
+
+            # Store page details
+            page_details.append({
+                "page_number": i + 1,
+                "header": header_content,
+                "footer": footer_content,
+                "header_bottom": header_bottom,
+                "footer_top": footer_top
+            })
+
+    # Compute similarity-based consistency for headers and footers
+    def compute_consistency(text_list):
+        scores = []
+        for base_text in text_list:
+            similarity_scores = [jaccard_similarity(base_text, text) for text in text_list if text]
+            avg_score = sum(similarity_scores) / len(similarity_scores) if similarity_scores else 0
+            scores.append((base_text, avg_score))
+
+        # Find the text with the highest average similarity
+        consistent_text, max_similarity = max(scores, key=lambda x: x[1], default=("", 0))
+        return consistent_text, round(max_similarity * 100, 2)
+
+    consistent_header, header_confidence = compute_consistency(header_texts)
+    consistent_footer, footer_confidence = compute_consistency(footer_texts)
+
+    # Calculate average positions
+    consistent_header_bottom = round(sum(header_positions) / len(header_positions), 2) if header_positions else None
+    consistent_footer_top = round(sum(footer_positions) / len(footer_positions), 2) if footer_positions else None
+
+    return {
+        "consistent_header": consistent_header,
+        "header_confidence": header_confidence,
+        "consistent_header_bottom": consistent_header_bottom,
+        "consistent_footer": consistent_footer,
+        "footer_confidence": footer_confidence,
+        "consistent_footer_top": consistent_footer_top,
+        "footer_page_numbers_count": footer_page_numbers_count,
+        "total_pages": total_pages,
+        "page_details": page_details
+    }
+
+
+def save_grouped_sections_with_headers_to_file(header_footer_data, output_file):
+    """Saves consistent header/footer details to a text file."""
+    with open(output_file, "w", encoding="utf-8") as f:
+        # Write consistent header and footer details
+        f.write("Consistent Header and Footer Details:\n")
+        f.write(f"  Consistent Header Bottom: {header_footer_data['consistent_header_bottom']}\n")
+        f.write(f"  Header Confidence: {header_footer_data['header_confidence']}%\n")
+        f.write(f"  Consistent Header Content: {header_footer_data['consistent_header']}\n")
+        f.write(f"  Consistent Footer Top: {header_footer_data['consistent_footer_top']}\n")
+        f.write(f"  Footer Confidence: {header_footer_data['footer_confidence']}%\n")
+        f.write(f"  Consistent Footer Content: {header_footer_data['consistent_footer']}\n")
+        f.write(f"  Total Pages: {header_footer_data['total_pages']}\n")
+        f.write(f"  Footer Page Numbers Count: {header_footer_data['footer_page_numbers_count']}\n\n")
+
+        # Write page-wise header and footer details
+        f.write("Page-wise Header and Footer Details:\n")
+        for page in header_footer_data["page_details"]:
+            f.write(f"Page {page['page_number']}:\n")
+            f.write(f"  Header: {page['header']}\n")
+            f.write(f"  Footer: {page['footer']}\n")
+            f.write(f"  Header Bottom: {page['header_bottom']}\n")
+            f.write(f"  Footer Top: {page['footer_top']}\n")
+            f.write("\n")
+
+
+if __name__ == "__main__":
+    pdf_path = "/content/2107.03374v2.pdf"  # Replace with your PDF path
+    output_file = "/content/output_file.txt"  # Replace with your desired output path
+
+    # Detect headers and footers with similarity
+    header_footer_data = detect_header_footer_similarity(pdf_path)
+
+    # Save results to file
+    save_grouped_sections_with_headers_to_file(header_footer_data, output_file)
+
+    print(f"Header, footer, and similarity results saved to {output_file}")
