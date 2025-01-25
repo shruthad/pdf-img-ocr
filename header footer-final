@@ -1,0 +1,143 @@
+import pdfplumber
+from collections import defaultdict
+import re
+
+class SectionContainer:
+    """Container to store parsed content and metadata."""
+    def __init__(self, content: str, metadata: dict):
+        self.content = content
+        self.metadata = metadata
+
+    def __repr__(self):
+        return f"SectionContainer(metadata={self.metadata}, content_length={len(self.content)})"
+
+def detect_header_footer_positions(pdf_path, header_height=50, footer_height=50, similarity_threshold=0.8):
+    """
+    Detect headers and footers and calculate consistent positions, content, and confidence.
+
+    Args:
+        pdf_path (str): Path to the PDF file.
+        header_height (int): Height in points to define the header region.
+        footer_height (int): Height in points to define the footer region.
+        similarity_threshold (float): Threshold for detecting consistent headers and footers.
+
+    Returns:
+        dict: Contains consistent header/footer positions, content, confidence, and page details.
+    """
+    page_text_data = []
+    header_positions = []
+    footer_positions = []
+    header_contents = defaultdict(list)
+    footer_contents = defaultdict(list)
+    footer_page_numbers_count = 0  # Count of footers detected as page numbers
+
+    with pdfplumber.open(pdf_path) as pdf:
+        total_pages = len(pdf.pages)
+        for i, page in enumerate(pdf.pages):
+            page_height = page.height
+            words = page.extract_words()
+
+            header_text = []
+            footer_text = []
+            header_bottom = 0
+            footer_top = page_height
+
+            for word in words:
+                if word["top"] <= header_height:
+                    header_text.append(word["text"])
+                    header_bottom = max(header_bottom, word["bottom"])
+                elif word["top"] >= (page_height - footer_height):
+                    footer_text.append(word["text"])
+                    footer_top = min(footer_top, word["top"])
+
+            # Combine header/footer text
+            header_content = " ".join(header_text).strip()
+            footer_content = " ".join(footer_text).strip()
+
+            # Check if footer content is a page number
+            if footer_content.isdigit() or re.match(r"^Page \d+$", footer_content):
+                footer_page_numbers_count += 1
+                footer_content = "PageNumbers"
+
+            # Store page details
+            page_text_data.append({
+                "page": i + 1,
+                "header": header_content,
+                "footer": footer_content,
+                "header_bottom": header_bottom,
+                "footer_top": footer_top
+            })
+
+            if header_content:
+                header_positions.append(header_bottom)
+                header_contents[header_content].append(i + 1)
+
+            if footer_content:
+                footer_positions.append(footer_top)
+                footer_contents[footer_content].append(i + 1)
+
+    # Determine consistent header/footer positions and content
+    consistent_header_bottom = round(sum(header_positions) / len(header_positions), 2) if header_positions else None
+    consistent_footer_top = round(sum(footer_positions) / len(footer_positions), 2) if footer_positions else None
+
+    # Find the most frequent header and footer content
+    consistent_header = max(header_contents, key=lambda k: len(header_contents[k]), default=None)
+    consistent_footer = max(footer_contents, key=lambda k: len(footer_contents[k]), default=None)
+
+    # Calculate confidence scores
+    header_confidence = len(header_contents[consistent_header]) / total_pages * 100 if consistent_header else 0
+    footer_confidence = (footer_page_numbers_count / total_pages * 100
+                         if consistent_footer == "PageNumbers" else
+                         len(footer_contents[consistent_footer]) / total_pages * 100)
+
+    return {
+        "page_details": page_text_data,
+        "consistent_header_bottom": consistent_header_bottom,
+        "consistent_footer_top": consistent_footer_top,
+        "consistent_header": consistent_header,
+        "header_confidence": round(header_confidence, 2),
+        "consistent_footer": consistent_footer,
+        "footer_confidence": round(footer_confidence, 2),
+    }
+
+def save_grouped_sections_with_headers_to_file(grouped_sections, header_footer_data, output_file):
+    """Saves grouped sections along with header/footer details to a text file."""
+    with open(output_file, "w", encoding="utf-8") as f:
+        # Write consistent header and footer details
+        f.write("Consistent Header and Footer Details:\n")
+        f.write(f"  Consistent Header Bottom: {header_footer_data['consistent_header_bottom']}\n")
+        f.write(f"  Header Confidence: {header_footer_data['header_confidence']}%\n")
+        f.write(f"  Consistent Header Content: {header_footer_data['consistent_header']}\n")
+        f.write(f"  Consistent Footer Top: {header_footer_data['consistent_footer_top']}\n")
+        f.write(f"  Footer Confidence: {header_footer_data['footer_confidence']}%\n")
+        f.write(f"  Consistent Footer Content: {header_footer_data['consistent_footer']}\n\n")
+
+        # Write grouped sections
+        for font_size, styles in sorted(grouped_sections.items(), reverse=True):
+            f.write(f"Font Size: {font_size}\n")
+            f.write("=" * 50 + "\n")
+            for font_style, sections in styles.items():
+                f.write(f"  Font Style: {font_style}\n")
+                f.write("  " + "-" * 45 + "\n")
+                for section in sections:
+                    f.write(f"    Page Number: {section['page_number']}\n")
+                    f.write(f"    Content: {section['content']}\n")
+                    f.write("\n")
+                f.write("  " + "-" * 45 + "\n")
+            f.write("-" * 50 + "\n\n")
+
+if __name__ == "__main__":
+    pdf_path = "sample.pdf"  # Replace with your PDF path
+    output_file = "output_file.txt"  # Replace with your desired output path
+
+    # Detect headers and footers
+    header_footer_data = detect_header_footer_positions(pdf_path)
+
+    # Parse content and group by font size
+    parsed_sections = parse_pdf_content(pdf_path)
+    grouped_sections = group_by_top_font_sizes(parsed_sections, top_n=5)
+
+    # Save results to file
+    save_grouped_sections_with_headers_to_file(grouped_sections, header_footer_data, output_file)
+
+    print(f"Header, footer, and top 5 font sizes saved to {output_file}")
