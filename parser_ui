@@ -1,0 +1,116 @@
+import ipywidgets as widgets
+from IPython.display import display, Image
+import pandas as pd
+import fitz  # PyMuPDF for PDFs
+from docx import Document
+import json
+
+# Assuming you have these functions implemented
+from wf_llm_preprocessing.document import WFLocaLAVAHTMLDocumentReader
+
+# Display Header Image (Update the path as needed)
+header_image = Image(filename="/mnt/data/header.png", width=600)  # Adjust width as needed
+
+# File Upload Widget
+upload = widgets.FileUpload(
+    accept='.txt,.csv,.docx,.pdf,.html',  # Accept multiple formats
+    multiple=False  # Single file at a time
+)
+
+# Dropdown to Select Output Format
+format_dropdown = widgets.Dropdown(
+    options=['CSV', 'JSON'],
+    value='CSV',
+    description='Save as:'
+)
+
+# Save Button
+save_button = widgets.Button(description="Save Parsed Content")
+
+# Output Widget
+output = widgets.Output()
+parsed_data = {}  # Store parsed content for saving
+
+# Function to process files based on extension
+def parse_file(change):
+    global parsed_data
+    uploaded_file = list(upload.value.values())[0]
+    file_name = uploaded_file['name']
+    file_extension = file_name.split('.')[-1].lower()
+    file_path = f"/mnt/data/{file_name}"  # Save in a temporary location
+    
+    # Save uploaded file
+    with open(file_path, "wb") as f:
+        f.write(uploaded_file['content'])
+    
+    with output:
+        output.clear_output()
+        print(f"Processing file: {file_name}")
+
+        if file_extension == "html":
+            document_reader = WFLocaLAVAHTMLDocumentReader(source_path=file_path)
+            documents = document_reader.get_documents()
+            parsed_data = [doc.metadata for doc in documents]
+            print("Parsed HTML Metadata:")
+            print(parsed_data)
+
+        elif file_extension == "csv":
+            df = pd.read_csv(file_path)
+            parsed_data = df.to_dict(orient="records")
+            print("CSV File Content Preview:")
+            print(df.head())
+
+        elif file_extension == "txt":
+            with open(file_path, "r", encoding="utf-8") as f:
+                text = f.read()
+            parsed_data = {"content": text}
+            print("Text File Content:")
+            print(text[:500])  # Display first 500 characters
+
+        elif file_extension == "docx":
+            doc = Document(file_path)
+            text = "\n".join([para.text for para in doc.paragraphs])
+            parsed_data = {"content": text}
+            print("DOCX File Content:")
+            print(text[:500])  # Display first 500 characters
+
+        elif file_extension == "pdf":
+            doc = fitz.open(file_path)
+            text = "\n".join([page.get_text() for page in doc])
+            parsed_data = {"content": text}
+            print("PDF File Content:")
+            print(text[:500])  # Display first 500 characters
+
+        else:
+            parsed_data = {}
+            print("Unsupported file format!")
+
+# Function to save parsed data in selected format
+def save_parsed_content(_):
+    if not parsed_data:
+        with output:
+            print("No parsed data to save!")
+        return
+
+    save_path = "/mnt/data/parsed_output"
+    file_format = format_dropdown.value
+
+    if file_format == "CSV":
+        df = pd.DataFrame(parsed_data)
+        save_file = f"{save_path}.csv"
+        df.to_csv(save_file, index=False)
+    elif file_format == "JSON":
+        save_file = f"{save_path}.json"
+        with open(save_file, "w", encoding="utf-8") as f:
+            json.dump(parsed_data, f, indent=4)
+
+    with output:
+        print(f"Parsed content saved as {save_file}")
+
+# Bind functions to widgets
+upload.observe(parse_file, names='value')
+save_button.on_click(save_parsed_content)
+
+# Display UI Components
+display(header_image)  # Show the header image
+display(upload, format_dropdown, save_button, output)
