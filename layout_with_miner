@@ -1,0 +1,47 @@
+from pdfminer.high_level import extract_pages
+from pdfminer.layout import LTTextBox, LTImage, LTRect, LTLine, LTFigure
+import fitz  # PyMuPDF
+
+def annotate_pdf(input_pdf, output_pdf):
+    doc = fitz.open(input_pdf)  # Load original PDF
+
+    for page_num, page_layout in enumerate(extract_pages(input_pdf)):
+        original_page = doc.load_page(page_num)  # Get the original page
+        page_width, page_height = original_page.rect.width, original_page.rect.height
+
+        for element in page_layout:
+            if isinstance(element, LTTextBox):
+                # Red - Text Box
+                x0, y0, x1, y1 = element.x0, page_height - element.y1, element.x1, page_height - element.y0
+                original_page.draw_rect([x0, y0, x1, y1], color=(1, 0, 0), width=1)  # Red box
+                original_page.insert_text((x0, y0 - 10), "Text", color=(0, 0, 0))  # Black label
+            
+            elif isinstance(element, LTImage):
+                # Green - Image
+                x0, y0, x1, y1 = element.x0, page_height - element.y1, element.x1, page_height - element.y0
+                original_page.draw_rect([x0, y0, x1, y1], color=(0, 1, 0), width=1)  # Green box
+                original_page.insert_text((x0, y0 - 10), "Image", color=(0, 0, 0))  # Black label
+
+            elif isinstance(element, LTLine):
+                # Blue - Line
+                x0, y0, x1, y1 = element.x0, page_height - element.y0, element.x1, page_height - element.y1
+                original_page.draw_line(fitz.Point(x0, y0), fitz.Point(x1, y1), color=(0, 0, 1), width=1)  # Blue line
+                original_page.insert_text((x0, y0 - 10), "Line", color=(0, 0, 0))  # Black label
+
+            elif isinstance(element, LTRect):
+                # Orange - Rectangle
+                x0, y0, x1, y1 = element.x0, page_height - element.y1, element.x1, page_height - element.y0
+                original_page.draw_rect([x0, y0, x1, y1], color=(1, 0.647, 0), width=1)  # Orange box
+                original_page.insert_text((x0, y0 - 10), "Rectangle", color=(0, 0, 0))  # Black label
+
+            elif isinstance(element, LTFigure):
+                # Purple - Figure (Could be a Table or Complex Shape)
+                x0, y0, x1, y1 = element.x0, page_height - element.y1, element.x1, page_height - element.y0
+                original_page.draw_rect([x0, y0, x1, y1], color=(0.5, 0, 0.5), width=1)  # Purple box
+                original_page.insert_text((x0, y0 - 10), "Figure", color=(0, 0, 0))  # Black label
+
+    doc.save(output_pdf)  # Save the final annotated PDF
+    doc.close()
+
+# Example Usage
+annotate_pdf("/content/2212.14052v3.pdf", "/content/annotated_output_12.pdf")
