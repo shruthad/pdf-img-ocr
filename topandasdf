@@ -1,0 +1,46 @@
+import pandas as pd
+
+def save_grouped_sections_to_dataframe(grouped_sections, header_footer_data):
+    """Saves grouped sections into two Pandas DataFrames."""
+    
+    # Create a list to store data for header/footer
+    header_footer_data_list = [{
+        "Font Size": None,
+        "Font Style": None,
+        "Page Number": None,
+        "Content Length": None,
+        "Content": None,
+        "Header Bottom": header_footer_data.get('consistent_header_bottom', None),
+        "Header Confidence": header_footer_data.get('header_confidence', None),
+        "Header Content": header_footer_data.get('consistent_header', None),
+        "Footer Top": header_footer_data.get('consistent_footer_top', None),
+        "Footer Confidence": header_footer_data.get('footer_confidence', None),
+        "Footer Content": header_footer_data.get('consistent_footer', None),
+    }]
+    
+    # Create a list to store data for grouped sections
+    grouped_data_list = []
+    
+    # Process grouped sections for font_size, styles in sorted order
+    for font_size, styles in sorted(grouped_sections.items(), reverse=True):
+        for font_style, sections in styles.items():
+            for section in sections:
+                grouped_data_list.append({
+                    "Font Size": font_size,
+                    "Font Style": font_style,
+                    "Page Number": section['page_number'],
+                    "Content Length": section['content_length'] if section['content_length'] >= 150 else None,
+                    "Content": section['content'] if section['content_length'] < 150 else None,
+                    "Header Bottom": None,
+                    "Header Confidence": None,
+                    "Header Content": None,
+                    "Footer Top": None,
+                    "Footer Confidence": None,
+                    "Footer Content": None,
+                })
+    
+    # Convert to DataFrames
+    header_footer_df = pd.DataFrame(header_footer_data_list)
+    grouped_sections_df = pd.DataFrame(grouped_data_list)
+    
+    return header_footer_df, grouped_sections_df
