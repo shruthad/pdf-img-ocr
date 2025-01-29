@@ -1,0 +1,49 @@
+import pdfplumber
+import fitz  # PyMuPDF
+
+def annotate_pdf(input_pdf, output_pdf):
+    doc = fitz.open(input_pdf)  # Load original PDF
+
+    with pdfplumber.open(input_pdf) as pdf:
+        for page_num, page in enumerate(pdf.pages):
+            original_page = doc.load_page(page_num)  # Get the original page
+            width, height = page.width, page.height
+
+            # Annotate text boxes (Red)
+            for block in page.extract_text_lines():
+                x0, y0, x1, y1 = block['x0'], block['top'], block['x1'], block['bottom']
+                original_page.draw_rect([x0, y0, x1, y1], color=(1, 0, 0), width=1)  # Red
+                original_page.insert_text((x0, y0 - 10), "Text", color=(0, 0, 0))  # Black label
+
+            # Annotate tables (Purple)
+            for table in page.extract_tables():
+                for row in table:
+                    for cell in row:
+                        if isinstance(cell, dict):  # Ensure it's a bounding box
+                            x0, y0, x1, y1 = cell['x0'], cell['top'], cell['x1'], cell['bottom']
+                            original_page.draw_rect([x0, y0, x1, y1], color=(0.5, 0, 0.5), width=1)  # Purple
+                            original_page.insert_text((x0, y0 - 10), "Table", color=(0, 0, 0))  # Black label
+
+            # Annotate images (Green)
+            for img in page.images:
+                x0, y0, x1, y1 = img["x0"], img["top"], img["x1"], img["bottom"]
+                original_page.draw_rect([x0, y0, x1, y1], color=(0, 1, 0), width=1)  # Green
+                original_page.insert_text((x0, y0 - 10), "Image", color=(0, 0, 0))  # Black label
+
+            # Annotate lines (Blue)
+            for line in page.lines:
+                x0, y0, x1, y1 = line["x0"], line["top"], line["x1"], line["bottom"]
+                original_page.draw_line(fitz.Point(x0, y0), fitz.Point(x1, y1), color=(0, 0, 1), width=1)  # Blue
+                original_page.insert_text((x0, y0 - 10), "Line", color=(0, 0, 0))  # Black label
+
+            # Annotate rectangles (Orange)
+            for rect in page.rects:
+                x0, y0, x1, y1 = rect["x0"], rect["top"], rect["x1"], rect["bottom"]
+                original_page.draw_rect([x0, y0, x1, y1], color=(1, 0.647, 0), width=1)  # Orange
+                original_page.insert_text((x0, y0 - 10), "Rectangle", color=(0, 0, 0))  # Black label
+
+    doc.save(output_pdf)  # Save the final annotated PDF
+    doc.close()
+
+# Example Usage
+annotate_pdf("/content/2107.03374v2.pdf", "/content/annotated_output_8.pdf")
