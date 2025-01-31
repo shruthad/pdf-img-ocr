@@ -1,0 +1,23 @@
+import gradio as gr
+
+def show_popup(filtered_files):
+    # Your logic to process and return DataFrames
+    df1 = {"Col1": [1, 2, 3], "Col2": [4, 5, 6]}  # Replace with actual DataFrame
+    df2 = {"Font1": ["Arial", "Times"], "Font2": ["Calibri", "Verdana"]}  # Replace with actual DataFrame
+    return gr.update(visible=True), df1, df2
+
+with gr.Blocks() as demo:
+    analyze_btn = gr.Button("Analyze Document")
+    
+    popup_container = gr.Row(visible=False)  # Initially hidden popup
+    with popup_container:
+        analyze_output_i = gr.Dataframe(label="HF Results")
+        analyze_output_j = gr.Dataframe(label="Font Results")
+    
+    analyze_btn.click(
+        show_popup,
+        inputs=[],
+        outputs=[popup_container, analyze_output_i, analyze_output_j]
+    )
+
+demo.launch()
