@@ -1,0 +1,53 @@
+import gradio as gr
+import pandas as pd
+
+# Sample DataFrames
+def generate_html():
+    df_hf = pd.DataFrame({"Col1": [1, 2, 3], "Col2": [4, 5, 6]})
+    df_font = pd.DataFrame({"Font1": ["Arial", "Times"], "Font2": ["Calibri", "Verdana"]})
+
+    # Convert DataFrames to HTML
+    hf_html = df_hf.to_html(index=False)
+    font_html = df_font.to_html(index=False)
+
+    # Create an HTML file content
+    html_content = f"""
+    <html>
+    <head>
+        <title>Detailed Font Analysis</title>
+    </head>
+    <body>
+        <h2>HF Results</h2>
+        {hf_html}
+        <h2>Font Results</h2>
+        {font_html}
+        <button onclick='window.close()'>Close</button>
+    </body>
+    </html>
+    """
+    return html_content
+
+# Function to trigger JavaScript for opening a new tab
+js_script = """
+() => {
+    let win = window.open("", "_blank", "width=800,height=600");
+    if (win) { 
+        win.document.write(`<html><head><title>Detailed Font Analysis</title></head><body>
+            <h2>HF Results</h2>` + 
+            `{}` + `<h2>Font Results</h2>` + `{}` + 
+            `<button onclick='window.close()'>Close</button>
+        </body></html>`);
+        win.document.close();
+    } else {
+        alert("Popup blocked! Please allow popups for this site.");
+    }
+}
+""".format(pd.DataFrame({"Col1": [1, 2, 3], "Col2": [4, 5, 6]}).to_html(index=False), 
+           pd.DataFrame({"Font1": ["Arial", "Times"], "Font2": ["Calibri", "Verdana"]}).to_html(index=False))
+
+# Create Gradio UI
+with gr.Blocks() as demo:
+    analyze_btn = gr.Button("Detailed Font Analysis Results")
+    analyze_btn.click(None, _js=js_script)  # JavaScript executes when button is clicked
+
+demo.launch()
