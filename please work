@@ -1,0 +1,40 @@
+import gradio as gr
+import pandas as pd
+
+def generate_analysis_popup():
+    """Generates JavaScript to open a new window with analysis results."""
+    # Sample DataFrames (Replace these with actual DataFrames)
+    df_hf = pd.DataFrame({"Col1": [1, 2, 3], "Col2": [4, 5, 6]})
+    df_font = pd.DataFrame({"Font1": ["Arial", "Times"], "Font2": ["Calibri", "Verdana"]})
+
+    # Convert DataFrames to HTML
+    hf_html = df_hf.to_html(index=False)
+    font_html = df_font.to_html(index=False)
+
+    # JavaScript to open a new window and display results
+    js_script = f"""
+    () => {{
+        let win = window.open("", "_blank", "width=800,height=600");
+        if (win) {{ 
+            win.document.write(`<html>
+                <head><title>Detailed Font Analysis</title></head>
+                <body>
+                    <h2>HF Results</h2> {hf_html}
+                    <h2>Font Results</h2> {font_html}
+                    <button onclick='window.close()'>Close</button>
+                </body>
+            </html>`);
+            win.document.close();
+        }} else {{
+            alert("Popup blocked! Please allow popups for this site.");
+        }}
+    }}
+    """
+    return js_script
+
+# Create Gradio UI
+with gr.Blocks() as demo:
+    analyze_btn = gr.Button("Detailed Font Analysis Results")
+    analyze_btn.click(None, _js=generate_analysis_popup())  # Call function to generate JS
+
+demo.launch()
