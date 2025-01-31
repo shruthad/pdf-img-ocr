@@ -1,0 +1,46 @@
+import gradio as gr
+import pandas as pd
+
+# Sample DataFrames
+df_hf = pd.DataFrame({"Col1": [1, 2, 3], "Col2": [4, 5, 6]})
+df_font = pd.DataFrame({"Font1": ["Arial", "Times"], "Font2": ["Calibri", "Verdana"]})
+
+# Function to generate HTML content for new window
+def generate_html():
+    html_content = f"""
+    <html>
+    <head>
+        <title>Detailed Font Analysis</title>
+        <script>
+            function closeWindow() {{
+                window.close();
+            }}
+        </script>
+    </head>
+    <body>
+        <h2>HF Results</h2>
+        {df_hf.to_html()}
+        <h2>Font Results</h2>
+        {df_font.to_html()}
+        <button onclick="closeWindow()">Close</button>
+    </body>
+    </html>
+    """
+    return html_content
+
+# Function to return HTML link that opens a new window
+def open_popup():
+    return f"""
+    <script>
+        var win = window.open("", "_blank", "width=800,height=600");
+        win.document.write(`{generate_html()}`);
+    </script>
+    """
+
+with gr.Blocks() as demo:
+    analyze_btn = gr.Button("Detailed Font Analysis Results")
+    analyze_output = gr.HTML()  # Hidden HTML element for the popup
+
+    analyze_btn.click(open_popup, inputs=[], outputs=[analyze_output])
+
+demo.launch()
