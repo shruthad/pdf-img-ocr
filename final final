@@ -1,0 +1,38 @@
+import gradio as gr
+import pandas as pd
+
+def generate_html_for_popup():
+    """Returns HTML with a JavaScript button to open a popup for analysis results."""
+    df_hf = pd.DataFrame({"Col1": [1, 2, 3], "Col2": [4, 5, 6]})
+    df_font = pd.DataFrame({"Font1": ["Arial", "Times"], "Font2": ["Calibri", "Verdana"]})
+
+    hf_html = df_hf.to_html(index=False)
+    font_html = df_font.to_html(index=False)
+
+    html_content = f"""
+    <button onclick="openAnalysisPopup()">Detailed Font Analysis Results</button>
+    <script>
+        function openAnalysisPopup() {{
+            let win = window.open("", "_blank", "width=800,height=600");
+            if (win) {{
+                win.document.write(`<html>
+                    <head><title>Detailed Font Analysis</title></head>
+                    <body>
+                        <h2>HF Results</h2> {hf_html}
+                        <h2>Font Results</h2> {font_html}
+                        <button onclick='window.close()'>Close</button>
+                    </body>
+                </html>`);
+                win.document.close();
+            }} else {{
+                alert("Popup blocked! Please allow popups for this site.");
+            }}
+        }}
+    </script>
+    """
+    return html_content
+
+with gr.Blocks() as demo:
+    gr.HTML(generate_html_for_popup())  # Embed the button and JavaScript in UI
+
+demo.launch()
