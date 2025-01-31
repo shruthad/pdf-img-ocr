@@ -1,0 +1,10 @@
+f"""
+    <script>
+        var win = window.open("", "_blank", "width=800,height=600");
+        win.document.write("<html><head><title>Detailed Font Analysis</title></head><body>");
+        win.document.write("<h2>HF Results</h2>{hf_html}");
+        win.document.write("<h2>Font Results</h2>{font_html}");
+        win.document.write("<button onclick='window.close()'>Close</button>");
+        win.document.write("</body></html>");
+    </script>
+    """
