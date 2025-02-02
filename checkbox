@@ -1,0 +1,81 @@
+import pandas as pd
+import gradio as gr
+
+# Sample extracted data (replace with actual processed DataFrame)
+data = [
+    {"Font Size": 19, "Font Style": "FAAAH+Corbel", "Recommended Choice": "Title"},
+    {"Font Size": 16, "Font Style": "FAAAH+Corbel", "Recommended Choice": "Section"},
+    {"Font Size": 14, "Font Style": "FAAAH+Corbel", "Recommended Choice": "Subsection"},
+]
+
+# Convert to DataFrame
+df = pd.DataFrame(data)
+
+# Combine font size and style into one column for display
+df["Font Details"] = df["Font Size"].astype(str) + " - " + df["Font Style"]
+
+# Select relevant columns for display
+df_display = df[["Font Details", "Recommended Choice"]]
+
+
+# Function to update font values based on checkbox selection
+def update_fonts(use_title_auto, use_section_auto, use_subsection_auto,
+                 manual_title_font, manual_title_size,
+                 manual_section_font, manual_section_size,
+                 manual_subsection_font, manual_subsection_size):
+    
+    title_font, title_size = manual_title_font, manual_title_size
+    section_font, section_size = manual_section_font, manual_section_size
+    subsection_font, subsection_size = manual_subsection_font, manual_subsection_size
+
+    for _, row in df.iterrows():  
+        if use_title_auto and row["Recommended Choice"] == "Title":
+            title_font, title_size = row["Font Style"], row["Font Size"]
+        if use_section_auto and row["Recommended Choice"] == "Section":
+            section_font, section_size = row["Font Style"], row["Font Size"]
+        if use_subsection_auto and row["Recommended Choice"] == "Subsection":
+            subsection_font, subsection_size = row["Font Style"], row["Font Size"]
+
+    return title_font, title_size, section_font, section_size, subsection_font, subsection_size
+
+
+# Gradio UI
+with gr.Blocks() as demo:
+    gr.Markdown("## Font Selection and Configuration")
+    
+    gr.DataFrame(df_display, interactive=False)  # Display recommended fonts as a non-editable table
+
+    with gr.Row():
+        use_title_auto = gr.Checkbox(label="Auto-select Title Font", value=False)
+        title_font = gr.Textbox(label="Title Font Style", value="Manual Entry")
+        title_size = gr.Number(label="Title Font Size", value=20)
+
+    with gr.Row():
+        use_section_auto = gr.Checkbox(label="Auto-select Section Font", value=False)
+        section_font = gr.Textbox(label="Section Font Style", value="Manual Entry")
+        section_size = gr.Number(label="Section Font Size", value=10)
+
+    with gr.Row():
+        use_subsection_auto = gr.Checkbox(label="Auto-select Subsection Font", value=False)
+        subsection_font = gr.Textbox(label="Subsection Font Style", value="Manual Entry")
+        subsection_size = gr.Number(label="Subsection Font Size", value=8)
+
+    update_button = gr.Button("Update Selection")
+
+    update_button.click(
+        update_fonts,
+        inputs=[
+            use_title_auto, use_section_auto, use_subsection_auto,
+            title_font, title_size,
+            section_font, section_size,
+            subsection_font, subsection_size
+        ],
+        outputs=[
+            title_font, title_size,
+            section_font, section_size,
+            subsection_font, subsection_size
+        ]
+    )
+
+# Launch Gradio app
+demo.launch()
