@@ -1,0 +1,52 @@
+import gradio as gr
+import pandas as pd
+
+# Sample DataFrames (Replace these with actual DataFrames from memory)
+df_hf = pd.DataFrame({"Col1": [1, 2, 3], "Col2": [4, 5, 6]})
+df_font = pd.DataFrame({"Font1": ["Arial", "Times"], "Font2": ["Calibri", "Verdana"]})
+
+def generate_analysis_html():
+    """Creates a full-page modal using Gradio updates instead of JavaScript."""
+    hf_html = df_hf.to_html(index=False)
+    font_html = df_font.to_html(index=False)
+
+    # Full-page modal HTML
+    html_content = f"""
+    <div style="position:fixed; top:0; left:0; width:100%; height:100%; 
+        background:rgba(0,0,0,0.8); display:flex; align-items:center; 
+        justify-content:center; z-index:1000;">
+        
+        <div style="background:white; width:80%; height:80%; padding:20px; 
+            box-shadow:0px 0px 10px rgba(0,0,0,0.5); overflow:auto; 
+            border-radius:10px;">
+            
+            <h2>HF Results</h2> {hf_html}
+            <h2>Font Results</h2> {font_html}
+        </div>
+    </div>
+    """
+    return html_content
+
+# Function to clear the modal (simulate close action)
+def clear_modal():
+    return ""
+
+# Gradio UI
+with gr.Blocks() as demo:
+    btn_show = gr.Button("Show Detailed Font Analysis")
+    btn_close = gr.Button("Close", visible=False)  # Initially hidden
+    output_html = gr.HTML()
+
+    # Show modal
+    btn_show.click(generate_analysis_html, outputs=output_html)
+    
+    # Show close button after clicking the main button
+    btn_show.click(lambda: gr.update(visible=True), outputs=btn_close)
+
+    # Hide modal when close button is clicked
+    btn_close.click(clear_modal, outputs=output_html)
+    
+    # Hide close button again
+    btn_close.click(lambda: gr.update(visible=False), outputs=btn_close)
+
+demo.launch()
