@@ -1,0 +1,12 @@
+import gradio as gr
+
+def open_popup():
+    return """<script>window.open('https://www.google.com', '_blank');</script>"""
+
+with gr.Blocks() as demo:
+    analyze_btn = gr.Button("Open New Window")
+    output_html = gr.HTML()
+
+    analyze_btn.click(open_popup, outputs=output_html)
+
+demo.launch()
