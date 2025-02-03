@@ -1,0 +1,13 @@
+import gradio as gr
+
+def open_new_window():
+    # Inject JavaScript inside the output textbox
+    return '<script>window.open("https://www.google.com", "_blank");</script>'
+
+with gr.Blocks() as demo:
+    analyze_btn = gr.Button("Open New Window")
+    output_html = gr.Textbox(visible=False)  # Hidden textbox to store script
+
+    analyze_btn.click(open_new_window, outputs=output_html)
+
+demo.launch()
