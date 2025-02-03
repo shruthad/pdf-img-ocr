@@ -1,0 +1,9 @@
+    def open_modal():
+        df_hf, df_font = generate_analysis_data()
+        
+        # Custom JS to open the modal in a new window
+        script = """
+        window.open("about:blank", "_blank").document.write('<h1>Analysis Results</h1><h3>HF Results</h3>' + JSON.stringify(%s) + '<h3>Font Results</h3>' + JSON.stringify(%s));
+        """ % (df_hf.to_json(), df_font.to_json())
+        
+        return gr.update(visible=False), script 
