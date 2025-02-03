@@ -1,0 +1,12 @@
+import gradio as gr
+
+def generate_link():
+    return "[Click here to open Google](https://www.google.com){target=_blank}"
+
+with gr.Blocks() as demo:
+    analyze_btn = gr.Button("Open New Window")
+    output_link = gr.Markdown("")
+
+    analyze_btn.click(generate_link, outputs=output_link)
+
+demo.launch()
