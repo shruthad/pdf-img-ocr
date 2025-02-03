@@ -1,0 +1,87 @@
+import gradio as gr
+import fitz  # PyMuPDF
+
+# Function to process PDF and extract font details
+def process_pdf_to_get_top_5_fonts(file):
+    """ Process uploaded PDF and return recommended fonts for Title, Section, and Subsection. """
+    
+    # Open the uploaded PDF file
+    doc = fitz.open(file.name)
+
+    # Create lists to store unique fonts and sizes found
+    fonts = set()
+    sizes = set()
+    
+    # Loop through the first 3 pages (or all pages, depending on requirement)
+    for page_num in range(min(3, len(doc))):  # Limit to first 3 pages for performance
+        page = doc.load_page(page_num)
+        
+        # Extract the text along with the font details
+        for block in page.get_text("dict")["blocks"]:
+            if "lines" in block:
+                for line in block["lines"]:
+                    for span in line["spans"]:
+                        fonts.add(span["font"])  # Add the font family
+                        sizes.add(str(int(span["size"])))  # Add the font size (converted to string)
+
+    # Simulated recommendations for Title, Section, Subsection (based on extracted fonts)
+    font_list = list(fonts)
+    size_list = list(sizes)
+
+    return {
+        "Title": {"Font Style": font_list[0] if font_list else "Arial", "Font Size": size_list[0] if size_list else "14"},
+        "Section": {"Font Style": font_list[1] if len(font_list) > 1 else "Times New Roman", "Font Size": size_list[1] if len(size_list) > 1 else "12"},
+        "Subsection": {"Font Style": font_list[2] if len(font_list) > 2 else "Calibri", "Font Size": size_list[2] if len(size_list) > 2 else "10"},
+        "unique_style": font_list,
+        "unique_size": size_list
+    }
+
+# Function to update dropdowns when Analyze button is clicked
+def update_dropdowns(files):
+    if not files:
+        return gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
+
+    # Process the first uploaded file
+    font_data = process_pdf_to_get_top_5_fonts(files[0])
+
+    return (
+        gr.update(value=font_data["Title"]["Font Style"], choices=font_data["unique_style"]),
+        gr.update(value=font_data["Title"]["Font Size"], choices=font_data["unique_size"]),
+        gr.update(value=font_data["Section"]["Font Style"], choices=font_data["unique_style"]),
+        gr.update(value=font_data["Section"]["Font Size"], choices=font_data["unique_size"]),
+        gr.update(value=font_data["Subsection"]["Font Style"], choices=font_data["unique_style"]),
+        gr.update(value=font_data["Subsection"]["Font Size"], choices=font_data["unique_size"])
+    )
+
+# Gradio interface
+with gr.Blocks() as demo:
+    gr.Markdown("## Config Generator")
+    
+    # File upload widget
+    uploaded_files = gr.File(label="Upload Document", type="file", file_types=[".pdf", ".txt"])
+    
+    # Dropdowns for font style and size
+    with gr.Row():
+        title_font = gr.Dropdown(label="Title Font Style", choices=[], value="")
+        title_size = gr.Dropdown(label="Title Font Size", choices=[], value="")
+    
+    with gr.Row():
+        section_font = gr.Dropdown(label="Section Font Style", choices=[], value="")
+        section_size = gr.Dropdown(label="Section Font Size", choices=[], value="")
+    
+    with gr.Row():
+        subsection_font = gr.Dropdown(label="Subsection Font Style", choices=[], value="")
+        subsection_size = gr.Dropdown(label="Subsection Font Size", choices=[], value="")
+    
+    # Analyze button
+    analyze_btn = gr.Button("Analyze")
+    
+    # Click event to update dropdowns
+    analyze_btn.click(
+        update_dropdowns, 
+        inputs=[uploaded_files], 
+        outputs=[title_font, title_size, section_font, section_size, subsection_font, subsection_size]
+    )
+
+# Launch the app
+demo.launch()
