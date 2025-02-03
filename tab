@@ -1,0 +1,30 @@
+import gradio as gr
+import pandas as pd
+
+# Function to generate sample DataFrames
+def generate_analysis_data():
+    df_hf = pd.DataFrame({"Col1": [1, 2, 3], "Col2": [4, 5, 6]})
+    df_font = pd.DataFrame({"Font1": ["Arial", "Times"], "Font2": ["Calibri", "Verdana"]})
+    return df_hf, df_font
+
+# Create Gradio UI
+with gr.Blocks() as demo:
+    with gr.Tabs() as tabs:
+        with gr.Tab("Tab1"):
+            analyze_btn = gr.Button("Detailed Font Analysis Results")
+
+        with gr.Tab("Tab2") as tab2:
+            gr.Markdown("### HF Results")
+            analyze_output_i = gr.Dataframe()
+            gr.Markdown("### Font Results")
+            analyze_output_j = gr.Dataframe()
+
+    # Function to update the tab with results
+    def open_tab():
+        df_hf, df_font = generate_analysis_data()
+        return gr.update(selected=1), df_hf, df_font  # Switch to Tab2 and update dataframes
+
+    # Link button click to open Tab2 and update DataFrames
+    analyze_btn.click(open_tab, outputs=[tabs, analyze_output_i, analyze_output_j])
+
+demo.launch()
