@@ -1,0 +1,30 @@
+import gradio as gr
+import pandas as pd
+
+# Function to generate sample DataFrames
+def generate_analysis_data():
+    df_hf = pd.DataFrame({"Col1": [1, 2, 3], "Col2": [4, 5, 6]})
+    df_font = pd.DataFrame({"Font1": ["Arial", "Times"], "Font2": ["Calibri", "Verdana"]})
+    return df_hf, df_font
+
+# Function for the new tab (page) displaying results
+def results_page():
+    df_hf, df_font = generate_analysis_data()
+    return df_hf, df_font
+
+# Create a new Gradio page to display the results
+results_interface = gr.Interface(fn=results_page, inputs=[], outputs=[gr.Dataframe(), gr.Dataframe()])
+
+# Main UI
+with gr.Blocks() as demo:
+    analyze_btn = gr.Button("Open Results in New Tab")
+    output_link = gr.Markdown("")  # Placeholder for the clickable link
+
+    def generate_link():
+        return "[Click here to view results](./results){target=_blank}"
+
+    analyze_btn.click(generate_link, outputs=output_link)
+
+# Launch both interfaces
+demo.launch()
+results_interface.launch(share=True, inline=False)
