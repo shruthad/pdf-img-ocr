@@ -1,0 +1,41 @@
+import gradio as gr
+import pandas as pd
+
+def generate_analysis_html(file):
+    """Creates an HTML modal popup using JavaScript based on uploaded file data."""
+    try:
+        # Read the file into a DataFrame
+        df = pd.read_csv(file.name) if file.name.endswith(".csv") else pd.read_excel(file.name)
+
+        # Sample processing: Extract two tables from DataFrame (Modify as needed)
+        df_hf = df.iloc[:, :2]  # First 2 columns
+        df_font = df.iloc[:, 2:4] if df.shape[1] > 2 else df.copy()  # Next 2 columns (if exist)
+
+        # Convert DataFrames to HTML
+        hf_html = df_hf.to_html(index=False)
+        font_html = df_font.to_html(index=False)
+
+        # HTML Modal Code
+        html_content = f"""
+        <button onclick="document.getElementById('analysis-modal').style.display='block'">
+            Detailed Font Analysis Results
+        </button>
+        <div id="analysis-modal" style="display:none; position:fixed; top:20%; left:25%; width:50%;
+            background:white; padding:20px; box-shadow:0px 0px 10px rgba(0,0,0,0.5); z-index:1000;">
+            <h2>HF Results</h2> {hf_html}
+            <h2>Font Results</h2> {font_html}
+            <button onclick="document.getElementById('analysis-modal').style.display='none'">Close</button>
+        </div>
+        """
+        return html_content
+    except Exception as e:
+        return f"<p>Error processing file: {str(e)}</p>"
+
+# Gradio UI
+with gr.Blocks() as demo:
+    file_input = gr.File(label="Upload CSV or Excel File")
+    output_html = gr.HTML()
+
+    file_input.change(generate_analysis_html, inputs=file_input, outputs=output_html)
+
+demo.launch()
