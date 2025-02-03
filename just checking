@@ -1,0 +1,16 @@
+import gradio as gr
+
+# JavaScript function to open a new window
+js_code = """
+function openAnalysisWindow() {
+    window.open("https://www.google.com", "_blank");
+}
+"""
+
+with gr.Blocks() as demo:
+    analyze_btn = gr.Button("Open New Window")
+    
+    # Use gr.JS to trigger window.open() on button click
+    analyze_btn.click(None, _js="openAnalysisWindow")
+
+demo.launch()
