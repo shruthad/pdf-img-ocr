@@ -1,0 +1,48 @@
+import pandas as pd
+from docx2python import docx2python
+
+def analyze_docx(file_path=None, show=False, records=10):
+    style_list = []
+    style_text_list = []
+    
+    with docx2python(file_path, html=True) as document:
+        doc_pars = document.body
+        
+        for table in doc_pars:
+            for row in table:
+                for col in row:
+                    for cell in col:
+                        if hasattr(cell, 'style') and cell.style != '':  # Ensure cell has style attribute
+                            _txt = [run.text for run in getattr(cell, 'runs', []) if run.text]
+                            if _txt:
+                                if cell.style not in style_list:
+                                    style_list.append(cell.style)
+                                style_text_list.append([cell.style, ' '.join(_txt)[:100]])
+    
+    if show:
+        print("All unique styles are:")
+        print('*' * 20)
+        print(style_list)
+        print('*' * 20)
+        print("Examples are:")
+        print('*' * 20)
+        for style, content in style_text_list[:records]:
+            print(f"Style: {style}, Content: {content}")
+            print('*' * 20)
+    
+    df = pd.DataFrame(style_text_list, columns=['Style', 'Content'])
+    
+    with open('output_results.txt', 'w') as f:
+        f.write("All unique styles are:\n")
+        f.write('*' * 20 + '\n')
+        f.write('\n'.join(style_list) + '\n')
+        f.write('*' * 20 + '\n\n')
+        f.write("Examples are:\n")
+        f.write('*' * 20 + '\n')
+        f.write(df.to_string(index=False))
+        f.write('\n' + '*' * 20 + '\n')
+    
+    return df
+
+# Call the function
+df_result = analyze_docx(file_path=r'C:\Users\K093357\Downloads\Enterprise DLP Program_v4.1.docx', show=True)
