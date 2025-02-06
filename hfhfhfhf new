@@ -1,0 +1,121 @@
+import pdfplumber
+import re
+from collections import defaultdict
+from sklearn.metrics import jaccard_score
+import numpy as np
+
+def extract_page_text_with_positions(pdf_path, num_lines=3):
+    pages_data = []
+    
+    with pdfplumber.open(pdf_path) as pdf:
+        for page_num, page in enumerate(pdf.pages, start=1):
+            page_text = []
+            header_y_positions = []
+            footer_y_positions = []
+            detected_page_number = None  # Store page number if found
+
+            # Extract words with bounding boxes
+            words = page.extract_words()
+            if words:
+                for word in words:
+                    page_text.append(word['text'])
+                    
+                    # Header: Use `bottom` Y-coordinate
+                    if len(header_y_positions) < num_lines:
+                        header_y_positions.append(word['bottom'])
+
+                    # Footer: Use `top` Y-coordinate
+                    if len(footer_y_positions) < num_lines:
+                        footer_y_positions.append(word['top'])
+
+                # Check for page number in footer text
+                footer_text = " ".join(page_text[-num_lines:])  # Combine footer text for matching
+                detected_page_number = detect_page_number(footer_text, page_num)
+
+            # Save extracted data
+            pages_data.append({
+                "page_number": detected_page_number,
+                "header_text": set(page_text[:num_lines]),
+                "header_y": max(header_y_positions) if header_y_positions else None,  # Max `bottom`
+                "footer_text": set(page_text[-num_lines:]),
+                "footer_y": min(footer_y_positions) if footer_y_positions else None,  # Min `top`
+            })
+
+    return pages_data
+
+def detect_page_number(footer_text, page_num):
+    """Detects page numbers using regex patterns."""
+    page_patterns = [
+        rf"Page\s*{page_num}\b",   # Matches "Page 1", "Page   2", etc.
+        rf"\b{page_num}\s*of\s*\d+",  # Matches "1 of 10"
+        rf"\bPg[.\s]?{page_num}\b",  # Matches "Pg. 1" or "Pg 2"
+    ]
+    
+    for pattern in page_patterns:
+        if re.search(pattern, footer_text, re.IGNORECASE):
+            return page_num  # Return matched page number
+
+    return None  # No match found
+
+def get_repeating_patterns(pages_data):
+    header_candidates = defaultdict(int)
+    footer_candidates = defaultdict(int)
+    detected_page_numbers = set()
+    header_y_positions = []
+    footer_y_positions = []
+
+    for page in pages_data:
+        if page["header_text"]:
+            header_candidates[frozenset(page["header_text"])] += 1
+            if page["header_y"] is not None:
+                header_y_positions.append(page["header_y"])
+
+        if page["footer_text"]:
+            footer_candidates[frozenset(page["footer_text"])] += 1
+            if page["footer_y"] is not None:
+                footer_y_positions.append(page["footer_y"])
+        
+        if page["page_number"]:
+            detected_page_numbers.add(page["page_number"])
+
+    # Get most frequent header/footer
+    header_content = max(header_candidates, key=header_candidates.get, default=frozenset())
+    footer_content = max(footer_candidates, key=footer_candidates.get, default=frozenset())
+
+    # Average Y-coordinates
+    header_y_avg = np.mean(header_y_positions) if header_y_positions else None
+    footer_y_avg = np.mean(footer_y_positions) if footer_y_positions else None
+
+    return header_content, footer_content, header_y_avg, footer_y_avg, detected_page_numbers
+
+def jaccard_similarity(set1, set2):
+    """Compute Jaccard Similarity"""
+    if not set1 or not set2:
+        return 0
+    intersection = len(set1 & set2)
+    union = len(set1 | set2)
+    return intersection / union if union != 0 else 0
+
+def get_confidence_scores(pages_data, header_content, footer_content):
+    header_scores = []
+    footer_scores = []
+
+    for page in pages_data:
+        header_scores.append(jaccard_similarity(page["header_text"], header_content))
+        footer_scores.append(jaccard_similarity(page["footer_text"], footer_content))
+
+    return header_scores, footer_scores
+
+# Example Usage
+pdf_path = "sample.pdf"
+pages_data = extract_page_text_with_positions(pdf_path)
+header_content, footer_content, header_y, footer_y, detected_pages = get_repeating_patterns(pages_data)
+header_scores, footer_scores = get_confidence_scores(pages_data, header_content, footer_content)
+
+print("Detected Header Content:", header_content)
+print("Header Bottom Location (Y-coordinate):", header_y)  # Header: Max `bottom`
+print("Detected Footer Content:", footer_content)
+print("Footer Top Location (Y-coordinate):", footer_y)  # Footer: Min `top`
+print("Detected Page Numbers:", detected_pages)  # Extracted page numbers
+print("Header Jaccard Similarity Scores:", header_scores)
+print("Footer Jaccard Similarity Scores:", footer_scores)
