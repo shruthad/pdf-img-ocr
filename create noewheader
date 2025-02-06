@@ -1,0 +1,185 @@
+import pdfplumber
+import re
+from collections import Counter
+
+
+class SectionContainer:
+    """Container to store parsed content and metadata."""
+    def __init__(self, content: str, metadata: dict):
+        self.content = content
+        self.metadata = metadata
+
+    def __repr__(self):
+        return f"SectionContainer(metadata={self.metadata}, content_length={len(self.content)})"
+
+
+def is_page_number(content):
+    """Check if content matches common page number patterns."""
+    patterns = [
+        r"^\d+$", r"^Page \d+$", r"^Page \d+ of \d+$",
+        r"^Pg\.? \d+$", r"^\d+ of \d+$"
+    ]
+    return any(re.match(pattern, content, re.IGNORECASE) for pattern in patterns)
+
+
+def detect_consistent_text(text_list):
+    """Find the most frequently occurring text."""
+    if not text_list:
+        return ""
+    freq_counter = Counter(text_list)
+    most_common_text, occurrence = freq_counter.most_common(1)[0]
+    return most_common_text
+
+
+def detect_header_footer(pdf_path, header_height=50, footer_height=50):
+    """
+    Detect multi-line headers and footers and calculate confidence based on exact detected header/footer.
+
+    Args:
+        pdf_path (str): Path to the PDF file.
+        header_height (int): Height in points to define the header region.
+        footer_height (int): Height in points to define the footer region.
+
+    Returns:
+        dict: Contains detected header/footer content, positions, confidence, and page details.
+    """
+    header_texts, footer_texts = [], []
+    header_positions, footer_positions = [], []
+    page_details = []
+    footer_page_numbers_count = 0
+
+    with pdfplumber.open(pdf_path) as pdf:
+        total_pages = len(pdf.pages)
+
+        for i, page in enumerate(pdf.pages):
+            words = page.extract_words()
+            page_height = page.height
+
+            # Extract header/footer lines separately
+            header_lines = {}
+            footer_lines = {}
+
+            for word in words:
+                if word["top"] <= header_height:
+                    header_lines.setdefault(word["top"], []).append(word["text"])
+                if word["top"] >= (page_height - footer_height):
+                    footer_lines.setdefault(word["top"], []).append(word["text"])
+
+            # Combine words in the same line
+            header_content = [" ".join(header_lines[key]) for key in sorted(header_lines.keys())]
+            footer_content = [" ".join(footer_lines[key]) for key in sorted(footer_lines.keys())]
+
+            # Flatten multi-line content into a single string
+            header_text = " | ".join(header_content).strip() if header_content else ""
+            footer_text = " | ".join(footer_content).strip() if footer_content else ""
+
+            # Identify actual header bottom and footer top locations
+            header_bottom = max(header_lines.keys(), default=None)
+            footer_top = min(footer_lines.keys(), default=None)
+
+            # Handle page numbers in footers
+            is_page_num = is_page_number(footer_text)
+            if is_page_num:
+                footer_page_numbers_count += 1
+                footer_text = ""  # Ignore page numbers for similarity calculations
+
+            # Store extracted text and positions
+            if header_text:
+                header_texts.append(header_text)
+                header_positions.append((header_text, header_bottom))  # Store text-location pair
+
+            if footer_text:
+                footer_texts.append(footer_text)
+                footer_positions.append((footer_text, footer_top))  # Store text-location pair
+
+            # Save details for each page
+            page_details.append({
+                "page_number": i + 1,
+                "header": header_text,
+                "footer": footer_text,
+                "header_bottom": header_bottom,
+                "footer_top": footer_top
+            })
+
+    # **Step 1: Identify the most consistent header and footer**
+    consistent_header = detect_consistent_text(header_texts)
+    consistent_footer = detect_consistent_text(footer_texts)
+
+    # **Step 2: Get accurate header/footer locations**
+    def get_consistent_position(position_list, consistent_text, find_max=True):
+        """Get the most relevant position for a given text (either max or min)."""
+        relevant_positions = [pos for text, pos in position_list if text == consistent_text]
+        return max(relevant_positions) if find_max and relevant_positions else (
+            min(relevant_positions) if relevant_positions else None
+        )
+
+    consistent_header_bottom = get_consistent_position(header_positions, consistent_header, find_max=True)
+    consistent_footer_top = get_consistent_position(footer_positions, consistent_footer, find_max=False)
+
+    # **Step 3: Calculate confidence only using detected header/footer**
+    def calculate_confidence(text_list, consistent_text):
+        """Calculate confidence for headers/footers based on detected consistent text."""
+        if not text_list or not consistent_text:
+            return 0.0
+        occurrence = sum(1 for text in text_list if text == consistent_text)
+        return round((occurrence / len(text_list)) * 100, 2)
+
+    header_confidence = calculate_confidence(header_texts, consistent_header)
+    footer_confidence = calculate_confidence(footer_texts, consistent_footer)
+
+    # **Step 4: Extract only content within the detected header/footer region**
+    filtered_text_data = []
+
+    with pdfplumber.open(pdf_path) as pdf:
+        for i, page in enumerate(pdf.pages):
+            words = page.extract_words()
+            page_text = []
+
+            for word in words:
+                # Only include words that are outside the detected header/footer
+                if (word["top"] > consistent_header_bottom) and (word["top"] < consistent_footer_top):
+                    page_text.append(word["text"])
+
+            filtered_text_data.append(" ".join(page_text))
+
+    return {
+        "consistent_header": consistent_header,
+        "header_confidence": header_confidence,
+        "consistent_header_bottom": consistent_header_bottom,
+        "consistent_footer": consistent_footer,
+        "footer_confidence": footer_confidence,
+        "consistent_footer_top": consistent_footer_top,
+        "footer_page_numbers_count": footer_page_numbers_count,
+        "total_pages": total_pages,
+        "filtered_text": filtered_text_data,  # Final extracted text without header/footer
+        "page_details": page_details
+    }
+
+
+def save_results_to_file(header_footer_data, output_file):
+    """Saves detected header/footer details to a file."""
+    with open(output_file, "w", encoding="utf-8") as f:
+        f.write("Consistent Header and Footer Details:\n")
+        f.write(f"  Consistent Header Bottom: {header_footer_data['consistent_header_bottom']}\n")
+        f.write(f"  Header Confidence: {header_footer_data['header_confidence']}%\n")
+        f.write(f"  Consistent Header Content: {header_footer_data['consistent_header']}\n")
+        f.write(f"  Consistent Footer Top: {header_footer_data['consistent_footer_top']}\n")
+        f.write(f"  Footer Confidence: {header_footer_data['footer_confidence']}%\n")
+        f.write(f"  Consistent Footer Content: {header_footer_data['consistent_footer']}\n")
+        f.write(f"  Total Pages: {header_footer_data['total_pages']}\n")
+        f.write(f"  Footer Page Numbers Count: {header_footer_data['footer_page_numbers_count']}\n\n")
+
+        f.write("Filtered Content (Without Headers/Footers):\n")
+        for i, page_text in enumerate(header_footer_data["filtered_text"]):
+            f.write(f"Page {i+1}: {page_text}\n\n")
+
+
+# Usage Example
+if __name__ == "__main__":
+    pdf_path = "sample.pdf"
+    output_file = "output.txt"
+
+    header_footer_data = detect_header_footer(pdf_path)
+    save_results_to_file(header_footer_data, output_file)
+
+    print(f"Results saved to {output_file}")
