@@ -1,0 +1,90 @@
+import pdfplumber
+import re
+from collections import defaultdict
+import statistics
+
+def detect_header_footer(pdf_path, threshold=0.7, position_variance_limit=10):
+    with pdfplumber.open(pdf_path) as pdf:
+        page_count = len(pdf.pages)
+        header_candidates = defaultdict(list)
+        footer_candidates = defaultdict(list)
+        possible_page_numbers = defaultdict(list)
+
+        header_positions = []
+        footer_positions = []
+
+        header_is_page_number = False
+        footer_is_page_number = False
+
+        for i, page in enumerate(pdf.pages, start=1):
+            height = page.height
+            header_zone = height * 0.1  # Top 10% for header
+            footer_zone = height * 0.9  # Bottom 10% for footer
+
+            words = page.extract_words()
+            for word in words:
+                text = word['text'].strip()
+                top = word['top']
+                bottom = word['bottom']
+
+                if top < header_zone:  # Possible Header
+                    header_candidates[text].append(bottom)
+                    header_positions.append(bottom)
+
+                if bottom > footer_zone:  # Possible Footer
+                    footer_candidates[text].append(top)
+                    footer_positions.append(top)
+
+                # Identify possible page numbers
+                if re.fullmatch(r'(\d+|Page \d+|\d+/\d+)', text):  
+                    possible_page_numbers[text].append(i)
+
+        def filter_candidates(candidates):
+            """Filter header/footer candidates based on frequency and positional variance."""
+            filtered = {}
+            for text, positions in candidates.items():
+                frequency = len(positions) / page_count
+                if frequency >= threshold:  # Repetition threshold
+                    variance = statistics.variance(positions) if len(positions) > 1 else 0
+                    if variance <= position_variance_limit:  # Positional consistency check
+                        filtered[text] = round(frequency * 100, 2)  # Convert to percentage
+            return filtered
+
+        detected_header = filter_candidates(header_candidates)
+        detected_footer = filter_candidates(footer_candidates)
+
+        # Detect if all headers or footers are just page numbers
+        sequential_numbers = sorted([int(num) for num in possible_page_numbers if num.isdigit()])
+
+        if sequential_numbers and sequential_numbers == list(range(1, len(sequential_numbers) + 1)):
+            if set(detected_header.keys()).issubset(set(possible_page_numbers.keys())):
+                header_is_page_number = True
+                detected_header = {num: 100.0 for num in possible_page_numbers}  # High confidence
+
+            if set(detected_footer.keys()).issubset(set(possible_page_numbers.keys())):
+                footer_is_page_number = True
+                detected_footer = {num: 100.0 for num in possible_page_numbers}  # High confidence
+
+        # Combine detected header/footer content into a single string
+        header_text = " ".join(detected_header.keys()) if detected_header else ""
+        footer_text = " ".join(detected_footer.keys()) if detected_footer else ""
+
+        return {
+            "header": {
+                "content": header_text,
+                "confidence": max(detected_header.values(), default=0),
+                "is_page_number": header_is_page_number,
+                "bottom": max(header_positions, default=None)  # Bottom-most detected header position
+            },
+            "footer": {
+                "content": footer_text,
+                "confidence": max(detected_footer.values(), default=0),
+                "is_page_number": footer_is_page_number,
+                "top": min(footer_positions, default=None)  # Top-most detected footer position
+            }
+        }
+
+# Example Usage
+pdf_path = "/content/Generative_AI.pdf"
+result = detect_header_footer(pdf_path)
+print(result)
