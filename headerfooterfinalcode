@@ -1,0 +1,102 @@
+import pdfplumber
+import re
+from collections import defaultdict
+
+def jaccard_similarity(text1, text2):
+    set1, set2 = set(text1.split()), set(text2.split())
+    intersection = len(set1 & set2)
+    union = len(set1 | set2)
+    return intersection / union if union != 0 else 0
+
+def detect_page_number(text):
+    return bool(re.fullmatch(r"(Page\s*\d+|\d+\s*of\s*\d+|\d+)", text.strip(), re.IGNORECASE))
+
+def extract_header_footer(pdf_path):
+    headers, footers = defaultdict(list), defaultdict(list)
+    header_positions, footer_positions = defaultdict(list), defaultdict(list)
+    header_counts, footer_counts = defaultdict(int), defaultdict(int)
+    page_number_detected = False
+    
+    with pdfplumber.open(pdf_path) as pdf:
+        for page_num, page in enumerate(pdf.pages, start=1):
+            words = page.extract_words()  # Extract words with position info
+            text_lines = defaultdict(list)
+            
+            for word in words:
+                text_lines[word['top']].append(word['text'])
+                
+            sorted_lines = sorted(text_lines.items())  # Sort lines by vertical position
+            num_lines = len(sorted_lines)
+            
+            if num_lines == 0:
+                continue  # Skip empty pages
+            
+            for i in range(min(4, num_lines)):
+                line_content = ' '.join(sorted_lines[i][1])
+                if detect_page_number(line_content):
+                    line_content += " (Page Number)"
+                    page_number_detected = True
+                headers[i].append(line_content)
+                header_positions[i].append(sorted_lines[i][0])
+                header_counts[line_content] += 1
+                
+                line_content_footer = ' '.join(sorted_lines[-(i+1)][1])
+                if detect_page_number(line_content_footer):
+                    line_content_footer += " (Page Number)"
+                    page_number_detected = True
+                footers[i].append(line_content_footer)
+                footer_positions[i].append(sorted_lines[-(i+1)][0])
+                footer_counts[line_content_footer] += 1
+    
+    def get_consistent_text(lines, positions, counts):
+        candidate_text, candidate_position = '', 0
+        max_occurrences = 0
+        page_number_included = False
+        pos=[]
+        per_confidence=0
+        for i in range(4):
+            
+            line_group = lines.get(i, [])
+            if len(line_group) > 1:
+                similarity_scores = [jaccard_similarity(line_group[j], line_group[k]) for j in range(len(line_group)) for k in range(j+1, len(line_group))]
+                avg_similarity = sum(similarity_scores) / len(similarity_scores) if similarity_scores else 0
+                # print(avg_similarity)
+                
+                
+                if avg_similarity > 0.45:
+                    most_common_text = max(set(line_group), key=lambda text: counts[text])
+                    per_confidence=avg_similarity
+                    # print(per_confidence)
+                    # print(most_common_text)
+                    if counts[most_common_text] > max_occurrences:
+                        max_occurrences = counts[most_common_text]
+                        candidate_text += most_common_text
+                        candidate_position = sum(positions[i]) / len(positions[i]) if positions[i] else 0
+                        pos.append(candidate_position)
+                        page_number_included =False
+                        page_number_included = "(Page Number)" in most_common_text
+
+        confidence = 100 if page_number_included else per_confidence * 100
+        # confidence=per_confidence * 100
+        
+        # return candidate_text, candidate_position, page_number_included
+        return candidate_text, pos, confidence,page_number_included
+    # print(footers)
+    consistent_header, header_position, header_confidence ,header_has_page_number= get_consistent_text(headers, header_positions, header_counts)
+    consistent_footer, footer_position, footer_confidence, footer_has_page_number= get_consistent_text(footers, footer_positions, footer_counts)
+    
+    if footer_has_page_number:
+        consistent_footer = " (Page Number)"
+    
+    return {
+        "consistent_header_bottom": header_position[-1] if (len(header_position)> 0 )  else 0,
+        "consistent_footer_top": footer_position[0] if len(footer_position)>0  else 0,
+        "consistent_header": consistent_header,
+        "header_confidence": header_confidence,
+        "consistent_footer": consistent_footer,
+        "footer_confidence": footer_confidence
+    }
+
+# Example Usage:
+result = extract_header_footer("/content/2108.12409v2-2.pdf")
+print(result)
