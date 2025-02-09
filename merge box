@@ -1,0 +1,57 @@
+import pdfplumber
+import camelot
+import numpy as np
+from tabula import read_pdf
+
+def expand_bbox(bbox, padding=10):
+    """Expands the bounding box by a given padding."""
+    x0, y0, x1, y1 = bbox
+    return (x0 - padding, y0 - padding, x1 + padding, y1 + padding)
+
+def merge_overlapping_boxes(boxes):
+    """Merges overlapping bounding boxes into a single bounding box."""
+    merged_boxes = []
+    for box in boxes:
+        x0, y0, x1, y1 = box
+        merged = False
+        for i, (mx0, my0, mx1, my1) in enumerate(merged_boxes):
+            if not (x1 < mx0 or x0 > mx1 or y1 < my0 or y0 > my1):  # Check overlap
+                merged_boxes[i] = (min(x0, mx0), min(y0, my0), max(x1, mx1), max(y1, my1))
+                merged = True
+                break
+        if not merged:
+            merged_boxes.append(box)
+    return merged_boxes
+
+def is_valid_table(pdf_path, bbox, method="camelot"):
+    """Checks if a bounding box contains a valid table using Camelot or Tabula."""
+    x0, y0, x1, y1 = bbox
+    area_str = f"{x0},{y1},{x1},{y0}"  # Format expected by Camelot/Tabula
+    
+    if method == "camelot":
+        tables = camelot.read_pdf(pdf_path, flavor="stream", table_areas=[area_str], suppress_warnings=True)
+        return len(tables) > 0 and tables.n > 0  # Valid if Camelot detects a table
+    elif method == "tabula":
+        tables = read_pdf(pdf_path, area=[y0, x0, y1, x1], pages='all', multiple_tables=True)
+        return len(tables) > 0  # Valid if Tabula detects a table
+    
+    return False
+
+def extract_tables(pdf_path):
+    """Extracts tables from a PDF by refining bounding boxes and filtering non-tables."""
+    valid_tables = []
+    with pdfplumber.open(pdf_path) as pdf:
+        for page in pdf.pages:
+            rects = [expand_bbox(rect.bbox, padding=15) for rect in page.rects]  # Get bounding boxes from pdfplumber
+            merged_rects = merge_overlapping_boxes(rects)  # Merge overlapping boxes
+            
+            for bbox in merged_rects:
+                if is_valid_table(pdf_path, bbox, method="camelot"):  # Use Camelot to check
+                    valid_tables.append(bbox)
+    
+    return valid_tables
+
+# Example usage:
+pdf_file = "your_file.pdf"
+detected_tables = extract_tables(pdf_file)
+print("Detected valid tables:", detected_tables)
