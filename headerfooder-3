@@ -1,0 +1,121 @@
+import pdfplumber
+import re
+from collections import defaultdict
+
+def jaccard_similarity(text1, text2):
+    set1, set2 = set(text1.split()), set(text2.split())
+    intersection = len(set1 & set2)
+    union = len(set1 | set2)
+    return intersection / union if union != 0 else 0
+
+def detect_page_number(text):
+    return bool(re.fullmatch(r"(Page\s*\d+|\d+\s*of\s*\d+|\d+)", text.strip(), re.IGNORECASE))
+
+def group_lines_by_top(page):
+    lines = defaultdict(list)
+    for char in page.chars:
+        lines[round(char['top'])].append(char)
+
+    grouped_lines = {}
+    for top, chars in sorted(lines.items()):
+        # Sort characters by their x0 coordinate (horizontal position)
+        chars = sorted(chars, key=lambda x: x['x0'])
+        line_content = []
+
+        for i, char in enumerate(chars):
+            line_content.append(char['text'])
+
+            # Add space if the next character is not immediately adjacent
+            if i < len(chars) - 1:
+                next_char = chars[i + 1]
+                if next_char['x0'] > char['x1'] + 1:  # Adjust threshold as needed
+                    line_content.append(' ')
+
+        line_content = ''.join(line_content).strip()
+        if line_content:
+            grouped_lines[line_content] = chars
+
+    return grouped_lines
+
+def extract_header_footer(pdf_path):
+    headers, footers = defaultdict(list), defaultdict(list)
+    header_positions, footer_positions = defaultdict(list), defaultdict(list)
+    header_counts, footer_counts = defaultdict(int), defaultdict(int)
+    page_number_detected = False
+    
+    with pdfplumber.open(pdf_path) as pdf:
+        for page_num, page in enumerate(pdf.pages, start=1):
+            text_lines = group_lines_by_top(page)
+            
+            sorted_lines = sorted(text_lines.items(), key=lambda x: sum(char['top'] for char in x[1]) / len(x[1]))  # Sort lines by average top position
+            num_lines = len(sorted_lines)
+            
+            if num_lines == 0:
+                continue  # Skip empty pages
+            
+            for i in range(min(4, num_lines)):
+                line_content = sorted_lines[i][0]
+                avg_top = sum(char['top'] for char in sorted_lines[i][1]) / len(sorted_lines[i][1])
+                
+                if detect_page_number(line_content):
+                    line_content += " (Page Number)"
+                    page_number_detected = True
+                headers[i].append(line_content)
+                header_positions[i].append(avg_top)
+                header_counts[line_content] += 1
+                
+                line_content_footer = sorted_lines[-(i+1)][0]
+                avg_top_footer = sum(char['top'] for char in sorted_lines[-(i+1)][1]) / len(sorted_lines[-(i+1)][1])
+                
+                if detect_page_number(line_content_footer):
+                    line_content_footer += " (Page Number)"
+                    page_number_detected = True
+                footers[i].append(line_content_footer)
+                footer_positions[i].append(avg_top_footer)
+                footer_counts[line_content_footer] += 1
+    
+    def get_consistent_text(lines, positions, counts):
+        candidate_text, pos = '', []
+        max_occurrences = 0
+        page_number_included = False
+        per_confidence = 0
+        
+        for i in range(4):
+            line_group = lines.get(i, [])
+            if len(line_group) > 1:
+                similarity_scores = [jaccard_similarity(line_group[j], line_group[k]) 
+                                     for j in range(len(line_group)) 
+                                     for k in range(j+1, len(line_group))]
+                avg_similarity = sum(similarity_scores) / len(similarity_scores) if similarity_scores else 0
+                
+                if avg_similarity > 0.45:
+                    most_common_text = max(set(line_group), key=lambda text: counts[text])
+                    per_confidence = avg_similarity
+                    
+                    if counts[most_common_text] > max_occurrences:
+                        max_occurrences = counts[most_common_text]
+                        candidate_text = most_common_text
+                        pos.append(sum(positions[i]) / len(positions[i]) if positions[i] else 0)
+                        page_number_included = "(Page Number)" in most_common_text
+        
+        confidence = 100 if page_number_included else per_confidence * 100
+        return candidate_text, pos, confidence, page_number_included
+    
+    consistent_header, header_position, header_confidence, header_has_page_number = get_consistent_text(headers, header_positions, header_counts)
+    consistent_footer, footer_position, footer_confidence, footer_has_page_number = get_consistent_text(footers, footer_positions, footer_counts)
+    
+    if footer_has_page_number:
+        consistent_footer = " (Page Number)"
+    
+    return {
+        "consistent_header_bottom": header_position[-1] if header_position else 0,
+        "consistent_footer_top": footer_position[0] if footer_position else 0,
+        "consistent_header": consistent_header,
+        "header_confidence": header_confidence,
+        "consistent_footer": consistent_footer,
+        "footer_confidence": footer_confidence
+    }
+
+# Example Usage:
+result = extract_header_footer("/content/2108.12409v2-2.pdf")
+print(result)
